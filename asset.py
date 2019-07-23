@@ -34,13 +34,19 @@ class Base(object):
             print("[X] faild to connect to tor")
 
     def NewTorCircuit(self):
-        self.c.authenticate("testtest")
-        self.c.signal(Signal.NEWNYM)
+        try:
+            self.c.authenticate("testtest")
+            self.c.signal(Signal.NEWNYM)
+        except:
+            print("[x] faild to open new circuit")
 
     def ChangeIp(self):
-        with self.lock:
-            self.NewTorCircuit()
-            self.TorProxyConnect()
+        try:
+            with self.lock:
+                self.NewTorCircuit()
+                self.TorProxyConnect()
+        except:
+            print("[x] faild to change ip")
 
     def SendRequest(self):
         pass
@@ -96,7 +102,7 @@ class VirusTotal(BaseThreaded):
                 self.Logic(next_url)
 
             for dom in js['data']:
-                print(dom['id'])
+                #print(dom['id'])
                 self.domains.append(dom['id'])
             return True
         else:
@@ -122,7 +128,7 @@ class Censys(BaseThreaded):
             for scrap in scraped:
                 sdomain = self.Concat(scrap).lower()
                 if sdomain not in self.domains:
-                    print(sdomain)
+                    #print(sdomain)
                     self.domains.append(sdomain)
 
             if (int(num[0]) == int(num[1])) or (int(num[0]) == 40):
@@ -140,14 +146,46 @@ class Censys(BaseThreaded):
     def Concat(self, re:tuple):
         return re[0] + re[1]
 
+class CertSpotter(BaseThreaded):
+    def __init__(self, domain):
+        BaseThreaded.__init__(self, domain)
+        self.BASE_URL = "https://api.certspotter.com/v1/issuances?domain={domain}&expand=dns_names&include_subdomains=true"
+        self.url = self.BASE_URL.format(domain=domain)
+    
+    def SendRequest(self, url):
+        return requests.get(url, headers=self.HEADERS)
+    
+    def HandleResponse(self, res):
+        sc = res.status_code 
+        res = res.json()
+        if sc == 200:
+            for item in res:
+                for subdomain in item['dns_names']:
+                    if (not subdomain.startswith("*")) and (subdomain not in self.domains) and (self.domain in subdomain):
+                        self.domains.append(subdomain)
+                        #print(subdomain)
+            self.done = True
+            return True
+        else:
+            return False
+
 def asset(domain):
-    threads = [VirusTotal(domain),Censys(domain)]
+    subdomains = []
+    threads = [VirusTotal(domain), Censys(domain), CertSpotter(domain)]
     
     for thread in threads:
         thread.start()
 
     for thread in threads:
         thread.join()
+
+    for thread in threads:
+        for item in thread.Result(1):
+            if item not in subdomains:
+                subdomains.append(item)
+    
+    for sub in subdomains:
+        print(sub)
 
 try:
     asset(sys.argv[1])
