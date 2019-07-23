@@ -10,6 +10,7 @@ from stem import Signal
 from stem.control import Controller
 
 
+#base calsses of enumeration 
 class Base(object):
     def __init__(self, domain):
         self.done = False
@@ -77,33 +78,28 @@ class BaseThreaded(threading.Thread, Base):
 
     def run(self):
         self.Logic(self.url)
-        
-class VirusTotal(BaseThreaded):
+
+#children of enumeration sites
+class Crt(BaseThreaded):
     def __init__(self, domain):
         BaseThreaded.__init__(self, domain)
-        self.BASE_URL = 'https://www.virustotal.com/ui/domains/{domain}/subdomains?limit=40'
+        self.BASE_URL = "https://crt.sh/?q=%.{domain}"
         self.url = self.BASE_URL.format(domain=domain)
 
     def SendRequest(self, url):
         return requests.get(url, headers=self.HEADERS)
     
     def HandleResponse(self, res):
-        sc = res.status_code
-        js = res.json()
-        
+        sc = res.status_code 
+        res = res.text
         if sc == 200:
-            try:
-                next_url = js['links']['next']
-            except KeyError:
-                next_url = None
-                self.done = True
-            
-            if next_url:
-                self.Logic(next_url)
-
-            for dom in js['data']:
-                #print(dom['id'])
-                self.domains.append(dom['id'])
+            regex = r"<TD>([\w\d\.-]+)</TD>"
+            subdom = re.findall(regex, res)
+            for subdomain in subdom:
+                if (subdomain not in self.domains):
+                    self.domains.append(subdomain)
+                    #print(subdomain)
+            self.done = True
             return True
         else:
             return False
@@ -146,6 +142,36 @@ class Censys(BaseThreaded):
     def Concat(self, re:tuple):
         return re[0] + re[1]
 
+class VirusTotal(BaseThreaded):
+    def __init__(self, domain):
+        BaseThreaded.__init__(self, domain)
+        self.BASE_URL = 'https://www.virustotal.com/ui/domains/{domain}/subdomains?limit=40'
+        self.url = self.BASE_URL.format(domain=domain)
+
+    def SendRequest(self, url):
+        return requests.get(url, headers=self.HEADERS)
+    
+    def HandleResponse(self, res):
+        sc = res.status_code
+        js = res.json()
+        
+        if sc == 200:
+            try:
+                next_url = js['links']['next']
+            except KeyError:
+                next_url = None
+                self.done = True
+            
+            if next_url:
+                self.Logic(next_url)
+
+            for dom in js['data']:
+                #print(dom['id'])
+                self.domains.append(dom['id'])
+            return True
+        else:
+            return False
+
 class CertSpotter(BaseThreaded):
     def __init__(self, domain):
         BaseThreaded.__init__(self, domain)
@@ -171,8 +197,8 @@ class CertSpotter(BaseThreaded):
 
 def asset(domain):
     subdomains = []
-    threads = [VirusTotal(domain), Censys(domain), CertSpotter(domain)]
-    
+    threads = [VirusTotal(domain), Censys(domain), CertSpotter(domain), Crt(domain)]
+
     for thread in threads:
         thread.start()
 
@@ -186,8 +212,12 @@ def asset(domain):
     
     for sub in subdomains:
         print(sub)
+    
+    return subdomains
 
-try:
-    asset(sys.argv[1])
-except IndexError:
-    pass
+
+if __name__ == "__main__":
+    try:
+        asset(sys.argv[1])
+    except IndexError:
+        pass
