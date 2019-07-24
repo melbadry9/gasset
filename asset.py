@@ -98,7 +98,7 @@ class Crt(BaseThreaded):
             for subdomain in subdom:
                 if (subdomain not in self.domains):
                     self.domains.append(subdomain)
-                    #print(subdomain)
+                    print(subdomain)
             self.done = True
             return True
         else:
@@ -109,7 +109,6 @@ class Censys(BaseThreaded):
         BaseThreaded.__init__(self, domain)
         self.BASE_URL = 'https://censys.io/certificates/_search?q={domain}&page={page}'
         self.url = self.BASE_URL.format(domain=domain,page=str(1))
-        self.domain = domain
 
     def SendRequest(self, url):
         return requests.get(url, headers=self.HEADERS)
@@ -124,7 +123,7 @@ class Censys(BaseThreaded):
             for scrap in scraped:
                 sdomain = self.Concat(scrap).lower()
                 if sdomain not in self.domains:
-                    #print(sdomain)
+                    print(sdomain)
                     self.domains.append(sdomain)
 
             if (int(num[0]) == int(num[1])) or (int(num[0]) == 40):
@@ -166,7 +165,7 @@ class VirusTotal(BaseThreaded):
                 self.Logic(next_url)
 
             for dom in js['data']:
-                #print(dom['id'])
+                print(dom['id'])
                 self.domains.append(dom['id'])
             return True
         else:
@@ -189,32 +188,42 @@ class CertSpotter(BaseThreaded):
                 for subdomain in item['dns_names']:
                     if (not subdomain.startswith("*")) and (subdomain not in self.domains) and (self.domain in subdomain):
                         self.domains.append(subdomain)
-                        #print(subdomain)
+                        print(subdomain)
             self.done = True
             return True
         else:
             return False
 
+class FDNS(BaseThreaded):
+    def __init__(self, domain):
+        BaseThreaded.__init__(self, domain)
+        self.BASE_URL = "http://dns.bufferover.run/dns?q=.{domain}"
+        self.url = self.BASE_URL.format(domain=domain)
+    
+    def SendRequest(self, url):
+        return requests.get(url, headers=self.HEADERS)
+    
+    def HandleResponse(self, res):
+        sc = res.status_code 
+        res = res.json()
+        if sc == 200:
+            for item in res['FDNS_A']:
+                item = item.split(",")[1]
+                self.domains.append(item)
+            self.done = True
+            return True
+        else:
+            return False
+
+
 def asset(domain):
-    subdomains = []
-    threads = [VirusTotal(domain), Censys(domain), CertSpotter(domain), Crt(domain)]
+    threads = [VirusTotal(domain), Censys(domain), CertSpotter(domain), Crt(domain), FDNS(domain)]
 
     for thread in threads:
         thread.start()
 
     for thread in threads:
         thread.join()
-
-    for thread in threads:
-        for item in thread.Result(1):
-            if item not in subdomains:
-                subdomains.append(item)
-    
-    for sub in subdomains:
-        print(sub)
-    
-    return subdomains
-
 
 if __name__ == "__main__":
     try:
