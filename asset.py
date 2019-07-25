@@ -58,10 +58,13 @@ class Base(object):
     def Logic(self,url):
         done = False
         while not done:
-            if self.HandleResponse(self.SendRequest(url)):
+            try:
+                if self.HandleResponse(self.SendRequest(url)):
+                    done = True
+                else:
+                    self.ChangeIp()
+            except:
                 done = True
-            else:
-                self.ChangeIp()
 
     def Result(self, push):
         if self.done == True:
