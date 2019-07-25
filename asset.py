@@ -2,12 +2,15 @@ import re
 import sys
 import queue
 import socket
+import logging
 import threading
 
 import socks
 import requests
 from stem import Signal
 from stem.control import Controller
+
+logging.basicConfig(level=logging.DEBUG, filename="data.log",format="%(asctime)s -%(threadName)s %(levelname)s: %(message)s")
 
 
 #base calsses of enumeration 
@@ -31,6 +34,7 @@ class Base(object):
         try:
             socks.set_default_proxy(socks.SOCKS5, "127.0.0.1", 9050, True)
             socket.socket = socks.socksocket
+            logging.info("connected to tor proxy")
         except:
             print("[X] faild to connect to tor")
 
@@ -38,6 +42,7 @@ class Base(object):
         try:
             self.c.authenticate("testtest")
             self.c.signal(Signal.NEWNYM)
+            logging.info("new circuite created")
         except:
             print("[x] faild to open new circuit")
 
@@ -46,6 +51,7 @@ class Base(object):
             with self.lock:
                 self.NewTorCircuit()
                 self.TorProxyConnect()
+                logging.info("ip changed successfuly")
         except:
             print("[x] faild to change ip")
 
@@ -61,9 +67,11 @@ class Base(object):
             try:
                 if self.HandleResponse(self.SendRequest(url)):
                     done = True
+                    logging.info(str(url) + " done ")
                 else:
                     self.ChangeIp()
-            except:
+            except Exception as t:
+                logging.error("logic error" + str(t))
                 done = True
 
     def Result(self, push):
