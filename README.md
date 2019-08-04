@@ -4,5 +4,5 @@
 - `sudo service tor start`
 - `pip3 -r install requirements.txt`
 
-## Run
+## Usage
 `python3 asset.py domain.com`
