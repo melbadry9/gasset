@@ -1,3 +1,2 @@
-stem
-pysocks
+bs4
 requests
