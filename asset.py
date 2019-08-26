@@ -1,8 +1,10 @@
 import re
 import sys
+import time
 import queue
 import socket
 import logging
+import traceback
 import threading
 import multiprocessing
 
@@ -11,8 +13,10 @@ import requests
 from stem import Signal
 from stem.control import Controller
 
-
-logging.basicConfig(level=logging.DEBUG, filename="data.log",format="%(processName)s-%(levelname)s: %(message)s")
+logging.getLogger("stem").setLevel(logging.CRITICAL)
+logging.getLogger("urllib3").setLevel(logging.CRITICAL)
+logging.getLogger("requests").setLevel(logging.CRITICAL)
+logging.basicConfig(level=logging.DEBUG, filename="gasset.log",format="%(processName)s-%(levelname)s: %(message)s")
 
 #base calsses of enumeration 
 class Base(object):
@@ -28,8 +32,8 @@ class Base(object):
             'Accept-Encoding': 'gzip'}
         self.done = False
         self.domains = []
-        self.adapter = requests.adapters.HTTPAdapter(5, 10, max_retries=3)
-        self.CreateSession()
+        self.adapter = requests.adapters.HTTPAdapter(40, 1, max_retries=2)
+
 
     def CreateSession(self):
             self.session = requests.Session()
@@ -54,10 +58,9 @@ class Base(object):
                 if self.HandleResponse(self.SendRequest(url)):
                     done = True
                 else:
-                    raise Exception
+                    raise AssertionError
             except Exception as t:
-                error_msg = "Logic Error {}".format(str(t))
-                logging.error(error_msg)
+                logging.error("Logic Error {}".format(t))
                 retry +=1 
    
             if retry <= 5:
@@ -66,22 +69,28 @@ class Base(object):
                 done = True
 
 class TorBase(Base):
+    lock = threading.Lock()
     def __init__(self, domain):
         Base.__init__(self, domain)
         self.proxy = {
             "http": "socks5h://127.0.0.1:9050",
             "https": "socks5h://127.0.0.1:9050"
             }
-        self.lock = threading.Lock()
+        self.last_change = 0
 
     def NewTorCircuit(self):
         try:
-            with self.lock:
-                with Controller.from_port(port=9051) as c:
-                    c.authenticate("testtest")
-                    c.extend_circuit()
-                    c.close()
-                logging.info("New circuite created")
+            if (time.time() - self.last_change) > 10:
+                with self.lock:
+                    self.last_change = time.time()
+
+                    with Controller.from_port(port=9051) as c:
+                        c.authenticate("testtest")
+                        c.extend_circuit()
+                    logging.info("New circuit created")
+
+                self.session.close()
+                self.CreateSession()
         except Exception as err:
             logging.error("Faild to open new circuit {}".format(err))
 
@@ -94,36 +103,36 @@ class TorBase(Base):
                     done = True
                 else:
                     self.NewTorCircuit()
-                    self.session.close()
-                    self.CreateSession()
             except Exception as t:
                 error_msg = "Logic Error {}".format(str(t))
                 logging.error(error_msg)
 
 class TorThreaded(multiprocessing.Process, TorBase):
-    def __init__(self, domain):
+    def __init__(self, domain, shared=None):
         TorBase.__init__(self, domain)
         multiprocessing.Process.__init__(self)
-        return
+        self.CreateSession()
+        self.shared = shared
 
     def run(self):
         self.Logic(self.url)
-        return self.domains
+        self.shared.extend(self.domains)
 
 class BaseThreaded(multiprocessing.Process, Base):
-    def __init__(self, domain):
+    def __init__(self, domain, shared=None):
         Base.__init__(self, domain)
         multiprocessing.Process.__init__(self)
-        return
+        self.CreateSession()
+        self.shared = shared
 
     def run(self):
         self.Logic(self.url)
-        return self.domains
+        self.shared.extend(self.domains)
 
 #children of enumeration sites
 class Crt(BaseThreaded):
-    def __init__(self, domain):
-        BaseThreaded.__init__(self, domain)
+    def __init__(self, domain, shared=None):
+        BaseThreaded.__init__(self, domain, shared)
         self.BASE_URL = "https://crt.sh/?q=%.{domain}&dir=^&sort=1&group=icaid"
         self.url = self.BASE_URL.format(domain=domain)
 
@@ -146,8 +155,8 @@ class Crt(BaseThreaded):
             return False
 
 class FDNS(BaseThreaded):
-    def __init__(self, domain):
-        BaseThreaded.__init__(self, domain)
+    def __init__(self, domain, shared=None):
+        BaseThreaded.__init__(self, domain, shared)
         self.BASE_URL = "http://dns.bufferover.run/dns?q=.{domain}"
         self.url = self.BASE_URL.format(domain=domain)
     
@@ -167,8 +176,8 @@ class FDNS(BaseThreaded):
             return False
 
 class Censys(TorThreaded):
-    def __init__(self, domain):
-        TorThreaded.__init__(self, domain)
+    def __init__(self, domain, shared=None):
+        TorThreaded.__init__(self, domain, shared)
         self.BASE_URL = 'https://censys.io/certificates/_search?q={domain}&page={page}'
         self.Q = queue.Queue()
 
@@ -190,14 +199,10 @@ class Censys(TorThreaded):
                 if res.status_code == 200:
                     self.ExtractDomains(res.text)
                     done = True
-                elif res.status_code == 400:
-                    done = True
                 elif res.status_code == 429:
                     self.NewTorCircuit()
-                    self.session.close()
-                    self.CreateSession()
-            except Exception as err:
-                logging.error("Error {}".format(err))
+            except:
+                pass
         self.Q.task_done()
 
     def ExtractDomains(self, txt):
@@ -210,8 +215,8 @@ class Censys(TorThreaded):
         return re[0] + re[1]
 
 class VirusTotal(TorThreaded):
-    def __init__(self, domain):
-        TorThreaded.__init__(self, domain)
+    def __init__(self, domain, shared=None):
+        TorThreaded.__init__(self, domain, shared)
         self.BASE_URL = 'https://www.virustotal.com/ui/domains/{domain}/subdomains?limit=40'
         self.url = self.BASE_URL.format(domain=domain)
 
@@ -239,8 +244,8 @@ class VirusTotal(TorThreaded):
             return False
 
 class CertSpotter(BaseThreaded):
-    def __init__(self, domain):
-        BaseThreaded.__init__(self, domain)
+    def __init__(self, domain, shared=None):
+        BaseThreaded.__init__(self, domain, shared)
         self.BASE_URL = "https://api.certspotter.com/v1/issuances?domain={domain}&expand=dns_names&include_subdomains=true"
         self.url = self.BASE_URL.format(domain=domain)
     
@@ -261,16 +266,16 @@ class CertSpotter(BaseThreaded):
             return False
 
 def main(domain):
-    active_resources = [Crt, FDNS, Censys, VirusTotal, CertSpotter]
-    threads = [resource(domain) for resource in active_resources]
+    subdomains_final = multiprocessing.Manager().list()
+    active_resources = [Crt, FDNS, VirusTotal, CertSpotter, Censys]
+    threads = [resource(domain, subdomains_final) for resource in active_resources]
+    
     for thread in threads:
         thread.start()
     for thread in threads:
         thread.join()
     
-    subdomains_final = set()
-    for thread in threads:
-        subdomains_final = subdomains_final.union(set(thread.run()))
+    subdomains_final = set(subdomains_final)
     for sub in subdomains_final:
         print(sub)
 
