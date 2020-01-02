@@ -113,7 +113,7 @@ class Crt(BaseThreaded):
             regex = r"<TD>([\w\d\.\-\*]+)</TD>"
             subdom = re.findall(regex, res)
             for subdomain in subdom:
-                subdomain = subdomain.replace("*.","")
+                subdomain = subdomain.replace("*.","wild-dom")
                 self.domains.append(subdomain)
                 
             self.done = True
@@ -137,6 +137,29 @@ class FDNS(BaseThreaded):
             for item in res['FDNS_A']:
                 item = item.split(",")[1]
                 self.domains.append(item)               
+            self.done = True
+            return True
+        else:
+            return False
+
+class Shodan(BaseThreaded):
+    def __init__(self, domain, shared=None):
+        BaseThreaded.__init__(self, domain, shared)
+        self.BASE_URL = "https://beta.shodan.io/domain/{domain}"
+        self.url = self.BASE_URL.format(domain=domain)
+
+    def SendRequest(self, url):
+        return self.session.get(url, stream=True)
+
+    def HandleResponse(self, res):
+        sc = res.status_code
+        if sc == 200:
+            res = BS(res.text,"lxml")
+            domains = res.find_all("ul",{"id": "subdomains"})[0].find_all("li")
+            for dom in domains:
+                dom_name = "{0}.{1}"
+                dom_full = dom_name.format(dom.text.replace("*.","wild-dom."),self.domain)
+                self.domains.append(dom_full)
             self.done = True
             return True
         else:
@@ -239,7 +262,10 @@ class CertSpotter(BaseThreaded):
 
 def main(domain):
     subdomains_final = multiprocessing.Manager().list()
-    active_resources = [Crt, FDNS, VirusTotal, CertSpotter, Censys]
+    if cookie != "":
+        active_resources = [Crt, FDNS, Shodan, VirusTotal, CertSpotter, Censys]
+    else:
+        active_resources = [Crt, FDNS, Shodan, CertSpotter]
     threads = [resource(domain, subdomains_final) for resource in active_resources]
     for thread in threads:
         thread.start()
