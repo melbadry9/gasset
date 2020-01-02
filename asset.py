@@ -262,7 +262,7 @@ class CertSpotter(BaseThreaded):
 
 def main(domain):
     subdomains_final = multiprocessing.Manager().list()
-    if cookie != "":
+    if cookie['cookie'] != "":
         active_resources = [Crt, FDNS, Shodan, VirusTotal, CertSpotter, Censys]
     else:
         active_resources = [Crt, FDNS, Shodan, CertSpotter]
