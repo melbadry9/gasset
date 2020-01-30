@@ -149,6 +149,7 @@ class Shodan(BaseThreaded):
         self.url = self.BASE_URL.format(domain=domain)
 
     def SendRequest(self, url):
+        self.HEADERS['Cookie'] = cookie['shodan']
         return self.session.get(url, stream=True)
 
     def HandleResponse(self, res):
@@ -265,7 +266,7 @@ def main(domain):
     if cookie['cookie'] != "":
         active_resources = [Crt, FDNS, Shodan, VirusTotal, CertSpotter, Censys]
     else:
-        active_resources = [Crt, FDNS, Shodan, CertSpotter]
+        active_resources = [Shodan]#[Crt, FDNS, Shodan, CertSpotter]
     threads = [resource(domain, subdomains_final) for resource in active_resources]
     for thread in threads:
         thread.start()
