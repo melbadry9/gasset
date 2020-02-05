@@ -12,7 +12,7 @@ from bs4 import BeautifulSoup as BS
 
 from cookie import cookie
 
-logging_enabled = False
+logging_enabled = True
 if logging_enabled:
     import logging
     logging.basicConfig(level=logging.DEBUG, filename="data.log",format="%(processName)s-%(levelname)s: %(message)s")
@@ -58,10 +58,10 @@ class Base(object):
         res = self.GetResponseHTML(res)
         return json.loads(BS(res,"lxml").body.text)
 
-    def SendRequest(self):
+    def SendRequest(self, url):
         pass
 
-    def HandleResponse(self):
+    def HandleResponse(self, res):
         pass
     
     def Logic(self, url):

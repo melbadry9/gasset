@@ -1,4 +1,4 @@
 cookie = {
-    "cookie": ""
-    "shodan": ''
+    "cookie": "",
+    "shodan": ""
     }
